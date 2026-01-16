@@ -12,6 +12,7 @@ import 'settings_screen.dart';
 import '../widgets/how_to_play_dialog.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'cookie_destroy_screen.dart';
 
 
 
@@ -234,6 +235,39 @@ class _TitleScreenState extends State<TitleScreen> {
                               : Colors.white.withOpacity(0.3),
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              
+              // 裏モードボタン (右上)
+              Positioned(
+                top: 20,
+                right: 20,
+                child: IconButton(
+                  onPressed: () {
+                    AudioController().playSelect();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const CookieDestroyScreen(),
+                      ),
+                    );
+                  },
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red, width: 2),
+                    ),
+                    child: const Text(
+                      '裏',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
