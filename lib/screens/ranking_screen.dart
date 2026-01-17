@@ -126,6 +126,13 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Play Gamesにサインインしました')),
                   );
+                } else if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Play Gamesへのサインインに失敗しました。\n設定(SHA-1)を確認してください。'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
                 }
               } else {
                 // サインイン済みの場合はリーダーボードを表示
