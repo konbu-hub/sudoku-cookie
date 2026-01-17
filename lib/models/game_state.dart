@@ -11,6 +11,7 @@ class GameState {
   final bool isHintDisabled;
   final Map<String, int>? errorCell; // エラーが発生したセル {"row": x, "col": y}
   final int pendingPoints; // クリア前の暫定ポイント
+  final bool isScoreInvalid; // スコアが無効化されているか(マスコット10回クリック時)
 
   GameState({
     this.errors = 0,
@@ -24,6 +25,7 @@ class GameState {
     this.isHintDisabled = false,
     this.errorCell,
     this.pendingPoints = 0,
+    this.isScoreInvalid = false,
   });
 
   GameState copyWith({
@@ -40,6 +42,7 @@ class GameState {
     Map<String, int>? errorCell,
     bool clearErrorCell = false,
     int? pendingPoints,
+    bool? isScoreInvalid,
   }) {
     return GameState(
       errors: errors ?? this.errors,
@@ -53,6 +56,7 @@ class GameState {
       isHintDisabled: isHintDisabled ?? this.isHintDisabled,
       errorCell: clearErrorCell ? null : (errorCell ?? this.errorCell),
       pendingPoints: pendingPoints ?? this.pendingPoints,
+      isScoreInvalid: isScoreInvalid ?? this.isScoreInvalid,
     );
   }
 

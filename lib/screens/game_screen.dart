@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:confetti/confetti.dart';
+
 import '../providers/game_provider.dart';
 import '../providers/theme_provider.dart';
 import '../widgets/sudoku_grid.dart';
@@ -26,8 +26,8 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateMixin {
   @override
   late AnimationController _explosionController;
-  late ConfettiController _confettiController;
   bool _hasExploded = false;
+  bool _showFlash = false; // フラッシュエフェクト用
 
   @override
   void initState() {
@@ -46,13 +46,28 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       duration: const Duration(milliseconds: 800),
     );
     
-    _confettiController = ConfettiController(duration: const Duration(seconds: 2));
+
   }
 
   void _onNumberComplete() {
     final gp = context.read<GameProvider>();
     if (gp.numberCompletionEvent.value != null) {
-      _confettiController.play();
+      // 波動エフェクト開始
+      _explosionController.forward(from: 0);
+      
+      // 画面全体をフラッシュさせる(クールな白/青系で控えめに)
+      setState(() {
+        _showFlash = true;
+      });
+      
+      // フラッシュを0.2秒後に消す
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) {
+          setState(() {
+            _showFlash = false;
+          });
+        }
+      });
     }
   }
 
@@ -66,15 +81,21 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     // gp.numberCompletionEvent.removeListener(_onNumberComplete);
     
     _explosionController.dispose();
-    _confettiController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
 
-    return Scaffold(
-      appBar: AppBar(
+    return WillPopScope(
+      onWillPop: () async {
+        // Androidの戻るボタンを押したときの処理
+        AudioController().playSelect();
+        _showQuitConfirmation(context);
+        return false; // 戻るボタンの既定の動作をキャンセル
+      },
+      child: Scaffold(
+        appBar: AppBar(
         leadingWidth: 120,
         leading: Consumer<GameProvider>(
           builder: (context, gameProvider, child) {
@@ -258,13 +279,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                     ],
                                   ),
                                 ),
-                                // 爆発エフェクト
-                                if (_hasExploded)
-                                  Positioned(
-                                    child: IgnorePointer(
-                                      child: ExplosionWidget(controller: _explosionController),
-                                    ),
-                                  ),
+
                               ],
                             );
                           },
@@ -385,25 +400,37 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           ),
           const GameOverlay(),
           
-          // 紙吹雪エフェクト (最前面)
-          Align(
-            alignment: Alignment.center,
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirectionality: BlastDirectionality.explosive, // 全方向に爆発
-              shouldLoop: false,
-              colors: const [
-                Colors.green,
-                Colors.blue,
-                Colors.pink,
-                Colors.orange,
-                Colors.purple
-              ],
-              createParticlePath: drawStar, // 星型
+          // 画面フラッシュエフェクト
+          if (_showFlash)
+            AnimatedOpacity(
+              opacity: _showFlash ? 0.3 : 0.0, // 透明度を下げて控えめに
+              duration: const Duration(milliseconds: 200),
+              child: Container(
+                color: Colors.cyanAccent.withOpacity(0.3), // 黄色からクールなシアンへ
+              ),
+            ),
+          
+          // 波動エフェクト (Ripple)
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _explosionController,
+              builder: (context, child) {
+                if (_explosionController.value == 0 || _explosionController.isDismissed) {
+                   return const SizedBox.shrink();
+                }
+                return CustomPaint(
+                  painter: RipplePainter(
+                    progress: _explosionController.value,
+                    color: Colors.cyanAccent,
+                  ),
+                  size: Size.infinite,
+                );
+              },
             ),
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -434,12 +461,13 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           final audio = AudioController();
           return Consumer<GameProvider>(
             builder: (context, gameProvider, child) {
-              return Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              return SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     Row(
                       children: [
                         const Icon(Icons.settings),
@@ -554,9 +582,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                 const SizedBox(height: 16),
               ],
             ),
-          ); 
-        },
-      );
+          ),
+        ); 
+      },
+    );
     },
   ),
 );
@@ -663,5 +692,65 @@ class ExplosionWidget extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class RipplePainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  RipplePainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    // 画面全体を覆うくらいの最大半径
+    final maxRadius = size.shortestSide * 1.5;
+    
+    // 1つ目のリング
+    final currentRadius = maxRadius * progress;
+    final opacity = (1.0 - progress).clamp(0.0, 1.0);
+
+    final paint = Paint()
+      ..color = color.withOpacity(opacity * 0.8) // 少し透明度を下げる
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 20 * (1.0 - progress) // 外側にいくほど細く
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10); // ぼかし効果
+
+    canvas.drawCircle(center, currentRadius, paint);
+    
+    // 2つ目のリング（遅れて広がる）
+    if (progress > 0.2) {
+       final progress2 = (progress - 0.2) / 0.8;
+       final radius2 = maxRadius * progress2;
+       final opacity2 = (1.0 - progress2).clamp(0.0, 1.0);
+       
+       final paint2 = Paint()
+          ..color = color.withOpacity(opacity2 * 0.4)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 10 * (1.0 - progress2)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+          
+       canvas.drawCircle(center, radius2, paint2);
+    }
+    
+    // 3つ目のリング（さらに遅れて広がる、細い）
+    if (progress > 0.4) {
+       final progress3 = (progress - 0.4) / 0.6;
+       final radius3 = maxRadius * progress3;
+       final opacity3 = (1.0 - progress3).clamp(0.0, 1.0);
+       
+       final paint3 = Paint()
+          ..color = Colors.white.withOpacity(opacity3 * 0.6) // 白いアクセント
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2 * (1.0 - progress3);
+          
+       canvas.drawCircle(center, radius3, paint3);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant RipplePainter oldDelegate) {
+    return oldDelegate.progress != progress;
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +15,10 @@ import '../models/score_model.dart';
 import '../repositories/ranking_repository.dart';
 import 'package:uuid/uuid.dart';
 
+// Play Games Services
+import '../services/play_games_service.dart';
+import '../utils/play_games_constants.dart';
+
 
 
 
@@ -26,16 +31,27 @@ class GameProvider extends ChangeNotifier {
   bool _isGameClear = false;
   bool _isRunningAway = false;
   String? _tauntMessage;
+  bool _isGenerating = false; // 生成中フラグ
 
   // イベント通知用 (数字完成時にその数字をセット)
   final ValueNotifier<int?> numberCompletionEvent = ValueNotifier(null);
 
   GameProvider() {
     _loadUsername();
-    _initAuthListener();
+    _initializeAuth();
   }
 
-  void _initAuthListener() {
+  Future<void> _initializeAuth() async {
+    // 1. 未ログインなら匿名サインイン
+    if (AuthService().currentUser == null) {
+      print("No user signed in. Attempting anonymous sign-in...");
+      await AuthService().signInAnonymously();
+    }
+
+    // 2. データ移行チェック (Local -> Auth)
+    await _checkAndMigrateData();
+
+    // 3. 認証状態の監視
     AuthService().user.listen((user) async {
       if (user != null) {
         // 優先度ルール:
@@ -57,10 +73,36 @@ class GameProvider extends ChangeNotifier {
     });
   }
 
+  Future<void> _checkAndMigrateData() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final localId = prefs.getString('local_user_id');
+    // このユーザーに対して移行済みかチェック
+    final isMigrated = prefs.getBool('migrated_to_auth_${user.uid}') ?? false;
+
+    if (localId != null && !isMigrated) {
+      print("Migrating data from Local($localId) to Auth(${user.uid})...");
+      await RankingRepository().migrateLocalData(localId, user.uid);
+      await prefs.setBool('migrated_to_auth_${user.uid}', true);
+      
+      // ついでに名前もリモートに反映させておく
+      await RankingRepository().updateRemoteUsername(_gameState.username);
+    }
+  }
+
 
   Future<void> _loadUsername() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedName = prefs.getString('username') ?? 'Player';
+    String savedName = prefs.getString('username') ?? '';
+    
+    if (savedName.isEmpty) {
+      // 初回起動時: ランダムな名前を生成して保存
+      final randomNum = Random().nextInt(9000) + 1000; // 1000-9999
+      savedName = 'Player$randomNum';
+      await prefs.setString('username', savedName);
+    }
     
     // 設定の読み込み
     final isFastPencil = prefs.getBool('isFastPencil') ?? false;
@@ -82,6 +124,9 @@ class GameProvider extends ChangeNotifier {
     
     _gameState = _gameState.copyWith(username: newName);
     notifyListeners();
+
+    // Firestore上のユーザー名も更新
+    await RankingRepository().updateRemoteUsername(newName);
   }
 
 
@@ -98,6 +143,7 @@ class GameProvider extends ChangeNotifier {
 
   bool get isGameClear => _isGameClear;
   bool get isRunningAway => _isRunningAway;
+  bool get isGenerating => _isGenerating;
   String? get tauntMessage => _tauntMessage;
 
   /// 残りマス数
@@ -125,6 +171,10 @@ class GameProvider extends ChangeNotifier {
 
   /// 新しいゲームを開始
   Future<void> startNewGame(Difficulty difficulty, String username) async {
+    // 生成開始フラグON
+    _isGenerating = true;
+    notifyListeners();
+
     // 既存のタイマーを停止
     _stopTimer();
 
@@ -133,13 +183,22 @@ class GameProvider extends ChangeNotifier {
     final isLightningMode = prefs.getBool('isLightningMode') ?? false;
     final isFastPencil = prefs.getBool('isFastPencil') ?? false;
 
-    // パズルを生成 (少し時間がかかるかもしれないので非同期の間にやってもいいが、同期メソッドなのでそのまま)
-    var result = _engine.generatePuzzle(difficulty.value);
-    _currentPuzzle = SudokuPuzzle(
-      puzzle: result[0],
-      solution: result[1],
-      difficulty: difficulty,
-    );
+    // パズルを生成 (別スレッドで実行)
+    // 難易度が高いと時間がかかるため compute を使用
+    try {
+      var result = await compute(generatePuzzleWorker, difficulty.value);
+      _currentPuzzle = SudokuPuzzle(
+        puzzle: result[0],
+        solution: result[1],
+        difficulty: difficulty,
+      );
+    } catch (e) {
+      print("Puzzle Generation Failed: $e");
+      // 生成失敗時のフォールバック処理が必要ならここに追加
+      _isGenerating = false;
+      notifyListeners();
+      return;
+    }
 
     // ゲーム状態をリセット
     // ユーザー名は現在の状態を引き継ぐ
@@ -156,6 +215,9 @@ class GameProvider extends ChangeNotifier {
     _tauntMessage = null;
     _selectedRow = null;
     _selectedCol = null;
+
+    // 生成完了
+    _isGenerating = false;
 
     // タイマー開始
     _startTimer();
@@ -199,11 +261,20 @@ class GameProvider extends ChangeNotifier {
     _gameState = _gameState.copyWith(mascotClicks: _gameState.mascotClicks + 1);
     
     if (_gameState.mascotClicks == 5) {
-      _gameState = _gameState.copyWith(isHintDisabled: true);
+      // 5回クリック: ヒント無効化 + 愚かポイント2(即死モード) + スコア無効化
+      _gameState = _gameState.copyWith(
+        isHintDisabled: true,
+        errors: 2,
+        isScoreInvalid: true,
+      );
       AudioController().playError();
     }
     
     if (_gameState.mascotClicks >= 10) {
+      // 10回クリック: 強制ゲームオーバー
+      _gameState = _gameState.copyWith(
+        errors: 3,
+      );
       _stopTimer();
       AudioController().playGameOver();
       AudioController().vibrateMascotExplosion(); // 大きな振動
@@ -522,12 +593,77 @@ class GameProvider extends ChangeNotifier {
     }
   }
 
+  /// 時間ボーナスを計算
+  /// 
+  /// 難易度ごとに目標時間を設定し、早くクリアするほど多くのボーナスを獲得
+  /// 目標時間の50%以下: 最大ボーナス
+  /// 目標時間: ボーナスなし
+  /// 目標時間の150%以上: ペナルティ
+  int _calculateTimeBonus(Difficulty difficulty, int clearTimeSeconds) {
+    // 難易度ごとの目標時間(秒)
+    int targetTime;
+    int maxBonus;
+    
+    switch (difficulty) {
+      case Difficulty.easy:
+        targetTime = 300; // 5分
+        maxBonus = 1000;
+        break;
+      case Difficulty.medium:
+        targetTime = 600; // 10分
+        maxBonus = 3000;
+        break;
+      case Difficulty.hard:
+        targetTime = 900; // 15分
+        maxBonus = 8000;
+        break;
+      case Difficulty.expert:
+        targetTime = 1200; // 20分
+        maxBonus = 30000;
+        break;
+      case Difficulty.extreme:
+        targetTime = 1800; // 30分
+        maxBonus = 50000;
+        break;
+    }
+    
+    // 時間比率を計算 (clearTime / targetTime)
+    double timeRatio = clearTimeSeconds / targetTime;
+    
+    if (timeRatio <= 0.5) {
+      // 目標時間の50%以下: 最大ボーナス
+      return maxBonus;
+    } else if (timeRatio <= 1.0) {
+      // 目標時間以内: 線形にボーナス減少
+      // timeRatio 0.5 -> maxBonus, timeRatio 1.0 -> 0
+      return (maxBonus * (1.0 - timeRatio) / 0.5).round();
+    } else if (timeRatio <= 1.5) {
+      // 目標時間の150%以内: ボーナスなし
+      return 0;
+    } else {
+      // 目標時間の150%超過: ペナルティ
+      // 最大でベースポイントの10%をペナルティ
+      int basePenalty = (_getPointsPerCell(difficulty) * 5).round();
+      int penalty = (basePenalty * (timeRatio - 1.5)).round();
+      return -penalty.clamp(0, basePenalty * 2);
+    }
+  }
+
   /// スコアを保存
   Future<void> _saveScore() async {
     if (_currentPuzzle == null) return;
 
-    // 暫定ポイントを使用
-    final points = _gameState.pendingPoints;
+    // スコアが無効化されている場合は保存しない
+    if (_gameState.isScoreInvalid) {
+      print("Score is invalid (mascot clicked 10 times), not saving.");
+      return;
+    }
+
+    // 基本ポイント + 時間ボーナス
+    final basePoints = _gameState.pendingPoints;
+    final timeBonus = _calculateTimeBonus(_currentPuzzle!.difficulty, _gameState.time);
+    final totalPoints = (basePoints + timeBonus).clamp(0, double.infinity).toInt();
+    
     // Repositoryを通じてIDを取得 (Auth or Local UUID)
     final userId = await RankingRepository().getUserId();
     final username = _gameState.username.isEmpty ? 'Player' : _gameState.username;
@@ -537,7 +673,7 @@ class GameProvider extends ChangeNotifier {
       userId: userId,
       username: username,
       difficulty: _currentPuzzle!.difficulty.displayName, // "ふつう", "むずかしい" etc
-      points: points,
+      points: totalPoints,
       clearTime: _gameState.time,
       createdAt: DateTime.now(),
     );
@@ -549,12 +685,80 @@ class GameProvider extends ChangeNotifier {
     await RankingRepository().updateUserStats(
       userId: userId,
       username: username,
-      pointsToAdd: points,
+      pointsToAdd: totalPoints,
       difficulty: _currentPuzzle!.difficulty,
       clearTime: _gameState.time,
     );
     
-    print("Score Saved: $points pts, Time: ${_gameState.time}s");
+    print("Score Saved: Base=$basePoints, TimeBonus=$timeBonus, Total=$totalPoints, Time=${_gameState.time}s");
+    
+    // Play Gamesにスコアを送信
+    await _submitToPlayGames(totalPoints);
+    
+    // 実績を解除
+    await _unlockAchievements();
+  }
+  
+  /// Play Gamesにスコアを送信
+  Future<void> _submitToPlayGames(int points) async {
+    try {
+      final playGames = PlayGamesService();
+      
+      // サインインしていない場合は送信しない
+      if (!playGames.isSignedIn) {
+        print('Play Games: サインインしていないためスコア送信をスキップ');
+        return;
+      }
+      
+      // リーダーボードにスコアを送信
+      final success = await playGames.submitScore(
+        leaderboardId: PlayGamesConstants.leaderboardTotalScore,
+        score: points,
+      );
+      
+      if (success) {
+        print('Play Games: スコア送信成功 ($points pts)');
+      }
+    } catch (e) {
+      print('Play Games スコア送信エラー: $e');
+    }
+  }
+  
+  /// 実績を解除
+  Future<void> _unlockAchievements() async {
+    try {
+      final playGames = PlayGamesService();
+      
+      // サインインしていない場合は解除しない
+      if (!playGames.isSignedIn) {
+        print('Play Games: サインインしていないため実績解除をスキップ');
+        return;
+      }
+      
+      // 初クリア実績を解除
+      await playGames.unlockAchievement(
+        achievementId: PlayGamesConstants.achievementFirstClear,
+      );
+      print('Play Games: 初クリア実績解除');
+      
+      // スピードマスター(5分以内)
+      if (_gameState.time <= 300) { // 300秒 = 5分
+        await playGames.unlockAchievement(
+          achievementId: PlayGamesConstants.achievementSpeedMaster,
+        );
+        print('Play Games: スピードマスター実績解除');
+      }
+      
+      // 完璧主義者(ミスなし)
+      if (_gameState.errors == 0) {
+        await playGames.unlockAchievement(
+          achievementId: PlayGamesConstants.achievementPerfectionist,
+        );
+        print('Play Games: 完璧主義者実績解除');
+      }
+    } catch (e) {
+      print('Play Games 実績解除エラー: $e');
+    }
   }
 
 

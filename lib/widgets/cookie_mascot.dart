@@ -253,7 +253,7 @@ class _CookieMascotState extends State<CookieMascot> with SingleTickerProviderSt
     } else if (clicks == 6) {
       _showMessage("まだやんのか？\n後悔するぞ。");
     } else if (clicks == 5) {
-      _showMessage("調子乗んなよ...\nヒントはもうやらねぇ。");
+      _showMessage("調子乗んなよ...\nヒント禁止、即死モード、\nスコアも無効だ。覚悟しろ。");
     } else {
       final randomMessages = [
         '触んなよ、手が汚れるだろ。',
@@ -463,7 +463,7 @@ class _CookieMascotState extends State<CookieMascot> with SingleTickerProviderSt
     }
 
     if (provider.gameState.mascotClicks >= 5 && _lastMascotClicks < 5) {
-      _showMessage("おい...ふざけんなよ。\nお前のヒント、全部潰したからなw");
+      _showMessage("おい...ふざけんなよ。\nヒント禁止、即死モード、\nスコアも無効だ。");
       _lastMascotClicks = provider.gameState.mascotClicks;
       return;
     }

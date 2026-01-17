@@ -1,9 +1,8 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart'; // compute用
 
 /// 数独エンジン - パズル生成と検証を担当
-/// Python版(sudoku_engine.py)からの移植
 class SudokuEngine {
-  List<List<int>> grid = List.generate(9, (_) => List.filled(9, 0));
   final Random _random = Random();
 
   /// 指定された位置に数字を配置できるかチェック
@@ -30,34 +29,6 @@ class SudokuEngine {
     return true;
   }
 
-  /// 空のセルを見つける
-  List<int>? findEmptyLocation(List<List<int>> grid) {
-    for (int i = 0; i < 9; i++) {
-      for (int j = 0; j < 9; j++) {
-        if (grid[i][j] == 0) return [i, j];
-      }
-    }
-    return null;
-  }
-
-  /// バックトラッキングで数独を解く
-  bool solve(List<List<int>> grid) {
-    var empty = findEmptyLocation(grid);
-    if (empty == null) return true;
-
-    int row = empty[0];
-    int col = empty[1];
-
-    for (int num = 1; num <= 9; num++) {
-      if (isSafe(grid, row, col, num)) {
-        grid[row][col] = num;
-        if (solve(grid)) return true;
-        grid[row][col] = 0;
-      }
-    }
-    return false;
-  }
-
   /// グリッドを完全に埋める(ランダムな完成済み数独を生成)
   bool fillGrid(List<List<int>> grid) {
     for (int i = 0; i < 9; i++) {
@@ -80,50 +51,117 @@ class SudokuEngine {
     return true;
   }
 
+  /// 解の個数をカウントする (2つ以上見つかったら打ち切り)
+  int countSolutions(List<List<int>> grid, {int limit = 2}) {
+    // コピーを作成して再帰処理（元のグリッドを破壊しないため）とは限らないが、
+    // ここでは再帰的にバックトラッキングする際に空セルを探す
+    
+    // 空セルを探す
+    int row = -1;
+    int col = -1;
+    bool isEmpty = true;
+    
+    for (int i = 0; i < 9; i++) {
+      for (int j = 0; j < 9; j++) {
+        if (grid[i][j] == 0) {
+          row = i;
+          col = j;
+          isEmpty = false;
+          break;
+        }
+      }
+      if (!isEmpty) break;
+    }
+
+    // すべて埋まっている場合、解が見つかった
+    if (isEmpty) return 1;
+
+    int count = 0;
+    for (int num = 1; num <= 9; num++) {
+      if (isSafe(grid, row, col, num)) {
+        grid[row][col] = num;
+        count += countSolutions(grid, limit: limit);
+        grid[row][col] = 0; // バックトラック
+
+        if (count >= limit) return count;
+      }
+    }
+    return count;
+  }
+  
   /// 指定された難易度でパズルを生成
   /// 
   /// [difficulty] - 'easy', 'medium', 'hard', 'expert', 'extreme'
   /// 戻り値: [puzzle, solution] のリスト
   List<List<List<int>>> generatePuzzle(String difficulty) {
-    // 難易度に応じた空白の数
-    Map<String, List<int>> difficultyMap = {
-      'easy': [30, 35],
-      'medium': [40, 45],
-      'hard': [50, 55],
-      'expert': [60, 65],
-      'extreme': [66, 70],
+    // 目標とする空白の数 (現実的な難易度設定)
+    // 最小ヒント数は17なので、空白最大は64 (81-17)
+    // Extremeでもヒント25程度(空白56)が現実的な生成限界に近い
+    Map<String, int> targetEmptyMap = {
+      'easy': 32,    // Hint ~49
+      'medium': 40,  // Hint ~41
+      'hard': 46,    // Hint ~35
+      'expert': 52,  // Hint ~29
+      'extreme': 56, // Hint ~25
     };
 
-    List<int> range = difficultyMap[difficulty] ?? [40, 45];
-    int attempts = range[0] + _random.nextInt(range[1] - range[0] + 1);
-
+    int targetEmpty = targetEmptyMap[difficulty] ?? 40;
+    
     // 1. 完全に埋まった盤面を作成
-    grid = List.generate(9, (_) => List.filled(9, 0));
+    List<List<int>> grid = List.generate(9, (_) => List.filled(9, 0));
     fillGrid(grid);
 
-    // 解答を保存
+    // 解答を保存 (ディープコピー)
     List<List<int>> solution = List.generate(
       9,
       (i) => List.from(grid[i]),
     );
 
-    // 2. 穴をあける
+    // 2. 穴をあける (一意性を保ちながら)
     List<List<int>> puzzle = List.generate(
       9,
       (i) => List.from(grid[i]),
     );
-
-    while (attempts > 0) {
-      int row = _random.nextInt(9);
-      int col = _random.nextInt(9);
-
-      while (puzzle[row][col] == 0) {
-        row = _random.nextInt(9);
-        col = _random.nextInt(9);
+    
+    // 全マスのインデックスリストを作成してシャッフル
+    List<Point<int>> positions = [];
+    for (int i = 0; i < 9; i++) {
+      for (int j = 0; j < 9; j++) {
+        positions.add(Point(i, j));
       }
+    }
+    positions.shuffle(_random);
+    
+    int currentEmpty = 0;
+    
+    // ランダムな順序で穴あけを試行
+    for (var pos in positions) {
+      if (currentEmpty >= targetEmpty) break; // 目標達成
 
+      int row = pos.x;
+      int col = pos.y;
+      int backup = puzzle[row][col];
+      
+      // 穴を空ける
       puzzle[row][col] = 0;
-      attempts--;
+      
+      // 解が一意かチェック
+      // puzzleは書き換えられるのでコピーを渡す必要はない(再帰内で戻される)
+      // ただしcountSolutionsはgridを書き換えるので、
+      // puzzle自体を渡して良いが、countSolutions内で戻し忘れると壊れる
+      // 今回の実装ではcountSolutionsはバックトラックして0に戻すので安全だが、
+      // 念のためコピーを渡すのが安全
+      List<List<int>> checkGrid = List.generate(9, (i) => List.from(puzzle[i]));
+      
+      int solutions = countSolutions(checkGrid);
+      
+      if (solutions != 1) {
+        // 解が複数ある、または解なし(ありえないが) -> 元に戻す
+        puzzle[row][col] = backup;
+      } else {
+        // 一意なら採用
+        currentEmpty++;
+      }
     }
 
     return [puzzle, solution];
@@ -151,14 +189,11 @@ class SudokuEngine {
     }
     return true;
   }
+}
 
-  /// 指定された入力が正しいかチェック
-  bool isValidInput(List<List<int>> grid, int row, int col, int num) {
-    // 一時的に配置してチェック
-    int backup = grid[row][col];
-    grid[row][col] = num;
-    bool valid = isSafe(grid, row, col, num);
-    grid[row][col] = backup;
-    return valid;
-  }
+/// 別スレッドで実行するためのエントリーポイント関数
+/// compute() から呼び出すため、トップレベル関数である必要がある
+List<List<List<int>>> generatePuzzleWorker(String difficulty) {
+  final engine = SudokuEngine();
+  return engine.generatePuzzle(difficulty);
 }

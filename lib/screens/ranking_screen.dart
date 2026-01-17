@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/score_model.dart';
+import '../models/user_stats_model.dart';
 import '../repositories/ranking_repository.dart';
 import '../services/auth_service.dart';
 import '../controllers/audio_controller.dart';
@@ -8,6 +9,9 @@ import 'package:provider/provider.dart';
 import '../providers/game_provider.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart'; // For Timestamp
+
+// Play Games Services
+import '../services/play_games_service.dart';
 
 enum RankingSort { points, time }
 
@@ -24,7 +28,8 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
   final RankingRepository _repository = RankingRepository();
   
   // Data States
-  List<ScoreModel> _globalScores = [];
+  List<UserStatsModel> _globalRanking = []; // 累計ポイントランキング
+  List<UserStatsModel> _timeRanking = []; // タイムランキング
   List<ScoreModel> _localScores = [];
   int _runAwayCount = 0;
   bool _isLoading = true;
@@ -35,6 +40,7 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
   
   // Filters
   String _selectedDifficulty = 'すべて';
+  String _selectedTimeRankingDifficulty = 'やわクッキー'; // タイムランキング用難易度
   RankingSort _sortBy = RankingSort.points;
   
   final List<String> _difficulties = [
@@ -49,7 +55,7 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -61,7 +67,7 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
     setState(() => _isLoading = true);
     
     final results = await Future.wait([
-      _repository.fetchGlobalRanking(),
+      _repository.fetchGlobalRankingByTotalPoints(), // 累計ポイントランキング
       _repository.fetchLocalHistory(),
       _repository.getRunAwayCount(),
       _repository.fetchGlobalRunAwayRanking(),
@@ -69,7 +75,7 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
 
     if (mounted) {
       setState(() {
-        _globalScores = results[0] as List<ScoreModel>;
+        _globalRanking = results[0] as List<UserStatsModel>;
         _localScores = results[1] as List<ScoreModel>;
         _runAwayCount = results[2] as int;
         _runAwayRanking = results[3] as List<Map<String, dynamic>>;
@@ -77,46 +83,20 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
       });
       
       // DEBUG: データ取得状況をログ出力
-      print('DEBUG [RankingScreen]: Global Scores Count: ${_globalScores.length}');
+      print('DEBUG [RankingScreen]: Global Ranking Count: ${_globalRanking.length}');
       print('DEBUG [RankingScreen]: Local Scores Count: ${_localScores.length}');
       print('DEBUG [RankingScreen]: RunAway Count: $_runAwayCount');
       print('DEBUG [RankingScreen]: RunAway Ranking Count: ${_runAwayRanking.length}');
-      if (_globalScores.isNotEmpty) {
-        print('DEBUG [RankingScreen]: Sample Global Score: ${_globalScores.first.username} - ${_globalScores.first.points}pts');
+      if (_globalRanking.isNotEmpty) {
+        print('DEBUG [RankingScreen]: Sample Global Ranking: ${_globalRanking.first.username} - ${_globalRanking.first.totalPoints}pts');
       }
     }
   }
 
   // ... dispose ...
 
-  List<ScoreModel> _filterAndSortScores(List<ScoreModel> scores) {
-    if (_showRunAwayRanking) return []; // 逃亡ランキング時は使用しない
-
-    var filtered = scores;
-    if (_selectedDifficulty != 'すべて') {
-      filtered = filtered.where((s) => s.difficulty == _selectedDifficulty).toList();
-    }
-    
-    // ユーザーごとのベストスコアのみを残す
-    final Map<String, ScoreModel> bestScorePerUser = {};
-    for (final score in filtered) {
-      final userId = score.userId;
-      if (!bestScorePerUser.containsKey(userId) ||
-          score.points > bestScorePerUser[userId]!.points) {
-        bestScorePerUser[userId] = score;
-      }
-    }
-    filtered = bestScorePerUser.values.toList();
-    
-    filtered.sort((a, b) {
-      if (_sortBy == RankingSort.points) {
-        return b.points.compareTo(a.points);
-      } else {
-        return a.clearTime.compareTo(b.clearTime);
-      }
-    });
-    return filtered;
-  }
+  // 累計ポイントランキングはフィルター不要（全難易度の合計）
+  // ソートも不要（すでにFirestoreでソート済み）
 
   @override
   Widget build(BuildContext context) {
@@ -131,10 +111,34 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
         ),
         automaticallyImplyLeading: !widget.isTab,
         title: const Text('ランキング'),
+        actions: [
+          // Play Gamesボタン
+          IconButton(
+            icon: const Icon(Icons.videogame_asset),
+            tooltip: 'Play Games',
+            onPressed: () async {
+              final playGames = PlayGamesService();
+              
+              // サインインしていない場合はサインイン
+              if (!playGames.isSignedIn) {
+                final success = await playGames.signIn();
+                if (success && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Play Gamesにサインインしました')),
+                  );
+                }
+              } else {
+                // サインイン済みの場合はリーダーボードを表示
+                await playGames.showLeaderboard();
+              }
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.public), text: 'グローバル'),
+            Tab(icon: Icon(Icons.timer), text: 'タイムアタック'),
             Tab(icon: Icon(Icons.analytics), text: 'マイサマリー'),
           ],
         ),
@@ -151,10 +155,12 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
                     ? const Center(child: CircularProgressIndicator())
                     : _showRunAwayRanking
                         ? _buildRunAwayRankingList()
-                        : _buildRankingList(_filterAndSortScores(_globalScores), isLocal: false),
+                        : _buildUserStatsRankingList(_globalRanking),
               ),
             ],
           ),
+          // タイムアタックタブ
+          _buildTimeAttackTab(),
           // マイサマリータブ
           _isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -181,7 +187,7 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
             segments: const [
               ButtonSegment(
                 value: false,
-                label: Text('ハイスコア'),
+                label: Text('累計ポイント'),
                 icon: Icon(Icons.emoji_events),
               ),
               ButtonSegment(
@@ -201,55 +207,496 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ),
-          
-          if (!_showRunAwayRanking) ...[
-            const SizedBox(height: 12),
-            // ソートとフィルター
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedDifficulty,
-                    decoration: const InputDecoration(
-                      labelText: '難易度を選択',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      isDense: true,
-                    ),
-                    isExpanded: true,
-                    items: _difficulties.map((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value, overflow: TextOverflow.ellipsis),
-                      );
-                    }).toList(),
-                    onChanged: (newValue) {
-                      if (newValue != null) {
-                        setState(() => _selectedDifficulty = newValue);
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // ソート切り替え (アイコンのみで省スペース化)
-                ToggleButtons(
-                  isSelected: [_sortBy == RankingSort.points, _sortBy == RankingSort.time],
-                  onPressed: (index) {
-                    setState(() {
-                      _sortBy = index == 0 ? RankingSort.points : RankingSort.time;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(8),
-                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                  children: const [
-                    Tooltip(message: 'ポイント順', child: Icon(Icons.stars)),
-                    Tooltip(message: 'タイム順', child: Icon(Icons.timer)),
-                  ],
-                ),
-              ],
+        ],
+      ),
+    );
+  }
+
+  /// 累計ポイントランキングを表示
+  Widget _buildUserStatsRankingList(List<UserStatsModel> ranking) {
+    if (ranking.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.emoji_events_outlined,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'ランキングデータがありません',
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
           ],
-        ],
+        ),
+      );
+    }
+
+    final currentUserId = AuthService().currentUser?.uid;
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: ranking.length,
+        itemBuilder: (context, index) {
+          final stats = ranking[index];
+          final isCurrentUser = stats.userId == currentUserId;
+          final rank = index + 1;
+          
+          return _buildUserStatsCard(stats, rank, isCurrentUser);
+        },
+      ),
+    );
+  }
+
+  /// 累計ポイントランキングカード
+  Widget _buildUserStatsCard(UserStatsModel stats, int rank, bool isCurrentUser) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color? rankColor;
+    IconData? rankIcon;
+    
+    if (rank == 1) {
+      rankColor = Colors.amber;
+      rankIcon = Icons.emoji_events;
+    } else if (rank == 2) {
+      rankColor = Colors.grey[400];
+      rankIcon = Icons.emoji_events;
+    } else if (rank == 3) {
+      rankColor = Colors.brown[300];
+      rankIcon = Icons.emoji_events;
+    }
+
+    return Card(
+      elevation: isCurrentUser ? 4 : 1,
+      margin: const EdgeInsets.only(bottom: 12),
+      color: isCurrentUser 
+          ? (isDark 
+              ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
+              : Colors.indigo.shade50)
+          : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isCurrentUser
+            ? BorderSide(
+                color: isDark ? Theme.of(context).colorScheme.primary : Colors.indigo.shade700,
+                width: 2,
+              )
+            : BorderSide.none,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // ランク表示
+            SizedBox(
+              width: 50,
+              child: Column(
+                children: [
+                  if (rankIcon != null)
+                    Icon(rankIcon, color: rankColor, size: 32)
+                  else
+                    Text(
+                      '$rank',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  if (rank <= 3)
+                    Text(
+                      rank == 1 ? '1st' : rank == 2 ? '2nd' : '3rd',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: rankColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            
+            // ユーザー情報とスコア
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          stats.username,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (isCurrentUser)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isDark ? Theme.of(context).colorScheme.primary : Colors.indigo.shade700,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'あんた',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // 累計ポイント表示
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.stars, size: 18, color: Colors.amber),
+                        const SizedBox(width: 6),
+                        Text(
+                          '累計 ${stats.totalPoints}pt',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.amber,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// タイムアタックタブを構築
+  Widget _buildTimeAttackTab() {
+    return Column(
+      children: [
+        // 難易度選択 (水平スクロールタブ)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+            border: Border(
+              bottom: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: _difficulties.where((d) => d != 'すべて').map((difficulty) {
+                final isSelected = _selectedTimeRankingDifficulty == difficulty;
+                final color = _getDifficultyColor(difficulty);
+                
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () async {
+                         setState(() {
+                           _selectedTimeRankingDifficulty = difficulty;
+                           _isLoading = true;
+                         });
+                         
+                         // タイムランキングを取得
+                         final timeRanking = await _repository.fetchTimeRankingByDifficulty(difficulty);
+                         
+                         if (mounted) {
+                           setState(() {
+                             _timeRanking = timeRanking;
+                             _isLoading = false;
+                           });
+                         }
+                      },
+                      borderRadius: BorderRadius.circular(20),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isSelected ? color : color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isSelected ? color : color.withOpacity(0.3),
+                            width: 1.5
+                          ),
+                          boxShadow: isSelected ? [
+                            BoxShadow(
+                              color: color.withOpacity(0.4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            )
+                          ] : null,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isSelected) ...[
+                              const Icon(Icons.check, size: 16, color: Colors.white),
+                              const SizedBox(width: 4),
+                            ],
+                            Text(
+                              difficulty,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Theme.of(context).textTheme.bodyMedium?.color,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        
+        // ランキングリスト
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _timeRanking.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.timer_off, size: 48, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            'まだ記録がありません',
+                            style: TextStyle(color: Colors.grey[600]),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '$_selectedTimeRankingDifficultyでクリアして\n最初のランカーになろう！',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _buildTimeRankingList(),
+        ),
+      ],
+    );
+  }
+
+
+
+  /// タイムランキングリストを表示
+  Widget _buildTimeRankingList() {
+    if (_timeRanking.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.timer_off,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'まだ記録がありません',
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final currentUserId = AuthService().currentUser?.uid;
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        setState(() => _isLoading = true);
+        final timeRanking = await _repository.fetchTimeRankingByDifficulty(_selectedTimeRankingDifficulty);
+        if (mounted) {
+          setState(() {
+            _timeRanking = timeRanking;
+            _isLoading = false;
+          });
+        }
+      },
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _timeRanking.length,
+        itemBuilder: (context, index) {
+          final stats = _timeRanking[index];
+          final isCurrentUser = stats.userId == currentUserId;
+          final rank = index + 1;
+          final time = stats.bestTimes[_selectedTimeRankingDifficulty] ?? 0;
+          
+          return _buildTimeRankingCard(stats, rank, time, isCurrentUser);
+        },
+      ),
+    );
+  }
+
+  /// タイムランキングカード
+  Widget _buildTimeRankingCard(UserStatsModel stats, int rank, int timeSeconds, bool isCurrentUser) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color? rankColor;
+    IconData? rankIcon;
+    
+    if (rank == 1) {
+      rankColor = Colors.amber;
+      rankIcon = Icons.emoji_events;
+    } else if (rank == 2) {
+      rankColor = Colors.grey[400];
+      rankIcon = Icons.emoji_events;
+    } else if (rank == 3) {
+      rankColor = Colors.brown[300];
+      rankIcon = Icons.emoji_events;
+    }
+
+    // 時間をMM:SS形式に変換
+    final minutes = timeSeconds ~/ 60;
+    final seconds = timeSeconds % 60;
+    final timeString = '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+
+    return Card(
+      elevation: isCurrentUser ? 4 : 1,
+      margin: const EdgeInsets.only(bottom: 12),
+      color: isCurrentUser 
+          ? (isDark 
+              ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
+              : Colors.indigo.shade50)
+          : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isCurrentUser
+            ? BorderSide(
+                color: isDark ? Theme.of(context).colorScheme.primary : Colors.indigo.shade700,
+                width: 2,
+              )
+            : BorderSide.none,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // ランク表示
+            SizedBox(
+              width: 50,
+              child: Column(
+                children: [
+                  if (rankIcon != null)
+                    Icon(rankIcon, color: rankColor, size: 32)
+                  else
+                    Text(
+                      '$rank',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  if (rank <= 3)
+                    Text(
+                      rank == 1 ? '1st' : rank == 2 ? '2nd' : '3rd',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: rankColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            
+            // ユーザー情報とタイム
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          stats.username,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (isCurrentUser)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isDark ? Theme.of(context).colorScheme.primary : Colors.indigo.shade700,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'あんた',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // タイム表示
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.timer, size: 18, color: Colors.blue),
+                        const SizedBox(width: 6),
+                        Text(
+                          timeString,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -643,7 +1090,7 @@ class _RankingScreenState extends State<RankingScreen> with SingleTickerProvider
     final currentUser = AuthService().currentUser;
     int? globalRank;
     if (currentUser != null) {
-      final userIndex = _globalScores.indexWhere((s) => s.userId == currentUser.uid);
+      final userIndex = _globalRanking.indexWhere((s) => s.userId == currentUser.uid);
       if (userIndex != -1) {
         globalRank = userIndex + 1;
       }

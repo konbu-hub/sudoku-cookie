@@ -98,7 +98,7 @@ class SudokuGrid extends StatelessWidget {
               : isSelected
                   ? theme.colorScheme.primary.withOpacity(0.2)
                   : isNumberHighlighted
-                      ? Colors.blueAccent.withOpacity(0.25)
+                      ? Colors.blue.shade700.withOpacity(0.85) // より濃い青背景
                       : isHighlighted
                           ? theme.colorScheme.primary.withOpacity(0.05)
                           : Colors.transparent,
@@ -130,15 +130,6 @@ class SudokuGrid extends StatelessWidget {
                         )
                       : BorderSide.none,
                 ),
-          boxShadow: isNumberHighlighted
-              ? [
-                  BoxShadow(
-                    color: Colors.blueAccent.withOpacity(0.3),
-                    spreadRadius: 0.5,
-                    blurRadius: 4,
-                  )
-                ]
-              : null,
         ),
         child: Center(
           child: value != 0
@@ -147,9 +138,9 @@ class SudokuGrid extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: isFixed ? FontWeight.bold : FontWeight.w600,
-                    // ライトモード対応: 明るい背景でも見やすい色
+                    // ハイライト時は白、それ以外は通常の色
                     color: isNumberHighlighted
-                        ? Colors.cyanAccent
+                        ? Colors.white // ハイライト時は白抜き
                         : isFixed
                             ? (theme.brightness == Brightness.light
                                 ? Colors.black87
@@ -157,14 +148,6 @@ class SudokuGrid extends StatelessWidget {
                             : (theme.brightness == Brightness.light
                                 ? Colors.indigo.shade900
                                 : theme.colorScheme.primary.withOpacity(0.9)),
-                    shadows: isNumberHighlighted
-                        ? [
-                            Shadow(
-                                blurRadius: 3,
-                                color: Colors.blue.withOpacity(0.5),
-                                offset: const Offset(0, 0))
-                          ]
-                        : null,
                   ),
                 )
               : gameProvider.gameState.isFastPencil

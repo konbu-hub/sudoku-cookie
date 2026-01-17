@@ -137,8 +137,12 @@ class RankingRepository {
       // 2. 逃亡履歴の削除 (global_runaways)
       final runawayRef = _firestore!.collection('global_runaways').doc(userId);
       batch.delete(runawayRef);
+
+      // 3. ユーザー統計 (user_stats) の削除を追加
+      final statsRef = _firestore!.collection('user_stats').doc(userId);
+      batch.delete(statsRef);
       
-      // 3. 逃亡回数のローカルデータもリセット
+      // 4. 逃亡回数のローカルデータもリセット
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('run_away_count');
 
@@ -284,6 +288,42 @@ class RankingRepository {
     }
   }
 
+  /// 難易度別クリアタイムランキングを取得 (TOP 50)
+  Future<List<UserStatsModel>> fetchTimeRankingByDifficulty(String difficulty) async {
+    if (_firestore == null) {
+      print('DEBUG [RankingRepository]: Firestore is null, returning empty list');
+      return [];
+    }
+
+    try {
+      final querySnapshot = await _firestore!
+          .collection('user_stats')
+          .get();
+
+      // 指定難易度のベストタイムを持つユーザーのみフィルター
+      final stats = querySnapshot.docs
+          .map((doc) => UserStatsModel.fromFirestore(doc))
+          .where((stat) => 
+              stat.bestTimes.containsKey(difficulty) && 
+              stat.bestTimes[difficulty]! > 0) // タイムが0より大きい
+          .toList();
+
+      // ベストタイムでソート（昇順 = 速い順）
+      stats.sort((a, b) {
+        final timeA = a.bestTimes[difficulty] ?? 999999;
+        final timeB = b.bestTimes[difficulty] ?? 999999;
+        return timeA.compareTo(timeB);
+      });
+
+      final result = stats.take(50).toList();
+      print('DEBUG [RankingRepository]: Fetched ${result.length} time rankings for $difficulty');
+      return result;
+    } catch (e) {
+      print('Firestore Time Ranking Fetch Error: $e');
+      return [];
+    }
+  }
+
   /// 特定ユーザーの統計を取得
   Future<UserStatsModel?> getUserStats(String userId) async {
     await init();
@@ -406,6 +446,29 @@ class RankingRepository {
     return [];
   }
 
+  /// Firestore上のユーザー名を更新
+  Future<void> updateRemoteUsername(String newName) async {
+    if (_firestore == null) return;
+    try {
+      final userId = await getUserId();
+      
+      // 1. user_stats (累計ポイントなど)
+      final userStatsRef = _firestore!.collection('user_stats').doc(userId);
+      await userStatsRef.set({'username': newName}, SetOptions(merge: true));
+
+      // 2. global_runaways (逃亡ランキング)
+      final runawaysRef = _firestore!.collection('global_runaways').doc(userId);
+      await runawaysRef.set({'username': newName}, SetOptions(merge: true));
+
+      // Note: 過去のスコア(global_scores)の名前更新は高コストなため、
+      // ここではユーザー統計情報の更新に留める。
+      // 必要であればバッチ処理で global_scores loop update を実装する。
+      
+    } catch (e) {
+      print("Failed to update remote username: $e");
+    }
+  }
+
   /// ユーザーIDを取得 (Auth UID or Local UUID)
   Future<String> getUserId() async {
     // 1. AuthService (Google Auth)
@@ -424,6 +487,40 @@ class RankingRepository {
     }
     
     return localId!;
+  }
+
+  /// ローカルIDのデータをAuth IDに移行する
+  Future<void> migrateLocalData(String localId, String authId) async {
+    if (_firestore == null) return;
+    try {
+      print("Starting data migration from $localId to $authId");
+      
+      // 1. user_stats (累計ポイント)
+      final oldStatsRef = _firestore!.collection('user_stats').doc(localId);
+      final oldStatsSnap = await oldStatsRef.get();
+      if (oldStatsSnap.exists && oldStatsSnap.data() != null) {
+        await _firestore!.collection('user_stats').doc(authId).set(
+          oldStatsSnap.data()!, 
+          SetOptions(merge: true)
+        );
+        print("Migrated user_stats");
+      }
+
+      // 2. global_runaways (逃亡数)
+      final oldRunawaysRef = _firestore!.collection('global_runaways').doc(localId);
+      final oldRunawaysSnap = await oldRunawaysRef.get();
+      if (oldRunawaysSnap.exists && oldRunawaysSnap.data() != null) {
+        await _firestore!.collection('global_runaways').doc(authId).set(
+          oldRunawaysSnap.data()!,
+          SetOptions(merge: true)
+        );
+        print("Migrated global_runaways");
+      }
+      
+      print("Data migration completed.");
+    } catch (e) {
+      print("Migration failed: $e");
+    }
   }
   
   Future<String> _getUsername() async {

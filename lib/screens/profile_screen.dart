@@ -187,14 +187,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       label: const Text('連携する'),
                       onPressed: () async {
                         try {
-                          final user = await AuthService().signInWithGoogle();
+                          final user = await AuthService().linkWithGoogle();
                           if (user != null) {
                             // ユーザー名は変更しない(手動入力を優先)
                             // 認証のみ完了
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Googleアカウントと連携しました'),
+                                  content: Text('Googleアカウントと連携しました（データ引き継ぎ完了）'),
                                   backgroundColor: Colors.green,
                                   behavior: SnackBarBehavior.floating,
                                 ),
@@ -202,13 +202,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             }
                           }
                         } catch (e) {
-                          print('Login Logic Error: $e');
+                          print('Link Logic Error: $e');
+                          String errorMessage = '連携に失敗しました: ';
+                          
+                          // エラーメッセージの改善
+                          if (e.toString().contains('credential-already-in-use')) {
+                              errorMessage = 'このGoogleアカウントは既に他のデータと紐付いています。\n連携するには、一度ログアウトしてGoogleでログインし直してください（現在のゲストデータは引き継げません）。';
+                          } else {
+                              errorMessage += e.toString();
+                          }
+
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('連携に失敗しました: $e'),
+                                content: Text(errorMessage),
                                 backgroundColor: Colors.red,
                                 behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 5),
                               ),
                             );
                           }

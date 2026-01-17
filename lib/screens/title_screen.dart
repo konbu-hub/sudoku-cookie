@@ -12,7 +12,6 @@ import 'settings_screen.dart';
 import '../widgets/how_to_play_dialog.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'cookie_destroy_screen.dart';
 
 
 
@@ -228,7 +227,7 @@ class _TitleScreenState extends State<TitleScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: Text(
-                    'Ver 1.1.0',
+                    'Ver 1.2.6',
                     style: TextStyle(
                       color: Theme.of(context).brightness == Brightness.light
                               ? Colors.indigo.shade900.withOpacity(0.3)
@@ -240,38 +239,7 @@ class _TitleScreenState extends State<TitleScreen> {
                 ),
               ),
               
-              // 裏モードボタン (右上)
-              Positioned(
-                top: 20,
-                right: 20,
-                child: IconButton(
-                  onPressed: () {
-                    AudioController().playSelect();
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const CookieDestroyScreen(),
-                      ),
-                    );
-                  },
-                  icon: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red, width: 2),
-                    ),
-                    child: const Text(
-                      '裏',
-                      style: TextStyle(
-                        color: Colors.red,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+
             ],
           ),
         ),
@@ -326,25 +294,95 @@ class _TitleScreenState extends State<TitleScreen> {
               const SizedBox(height: 12),
               // 難易度ボタン
               ...Difficulty.values.map((difficulty) {
+                // 難易度ごとの色とアイコンを設定
+                Color startColor;
+                Color endColor;
+                IconData icon;
+                
+                switch (difficulty) {
+                  case Difficulty.easy:
+                    startColor = Colors.green.shade300;
+                    endColor = Colors.green.shade600;
+                    icon = Icons.sentiment_satisfied;
+                    break;
+                  case Difficulty.medium:
+                    startColor = Colors.blue.shade300;
+                    endColor = Colors.blue.shade600;
+                    icon = Icons.sentiment_neutral;
+                    break;
+                  case Difficulty.hard:
+                    startColor = Colors.orange.shade300;
+                    endColor = Colors.orange.shade600;
+                    icon = Icons.sentiment_dissatisfied;
+                    break;
+                  case Difficulty.expert:
+                    startColor = Colors.red.shade300;
+                    endColor = Colors.red.shade600;
+                    icon = Icons.local_fire_department;
+                    break;
+                  case Difficulty.extreme:
+                    startColor = Colors.purple.shade300;
+                    endColor = Colors.purple.shade900;
+                    icon = Icons.bolt;
+                    break;
+                }
+                
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        AudioController().playGameStart();
-                        Navigator.of(context).pop();
-                        _startGame(context, difficulty);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [startColor, endColor],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                      child: Text(
-                        difficulty.displayName,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: endColor.withOpacity(0.4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          AudioController().playGameStart();
+                          Navigator.of(context).pop();
+                          _startGame(context, difficulty);
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                          child: Row(
+                            children: [
+                              Icon(
+                                icon,
+                                color: Colors.white,
+                                size: 28,
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Text(
+                                  difficulty.displayName,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                              ),
+                              const Icon(
+                                Icons.arrow_forward_ios,
+                                color: Colors.white70,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
