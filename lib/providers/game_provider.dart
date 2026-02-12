@@ -7,7 +7,6 @@ import '../models/sudoku_puzzle.dart';
 import '../models/game_state.dart';
 
 import '../services/sudoku_engine.dart';
-import '../services/sudoku_engine.dart';
 import '../services/auth_service.dart';
 import '../controllers/audio_controller.dart';
 
@@ -32,9 +31,82 @@ class GameProvider extends ChangeNotifier {
   bool _isRunningAway = false;
   String? _tauntMessage;
   bool _isGenerating = false; // 生成中フラグ
+  bool _isDailyMission = false; // デイリーミッションフラグ
+  DateTime? _dailyDate; // デイリーミッションの日付
+  int? _lastTotalScore; // 最後に保存した合計スコア（クリア画面用）
+  bool _isDailyBonusApplied = false; // デイリーボーナス(10倍)が適用されたか
+
 
   // イベント通知用 (数字完成時にその数字をセット)
   final ValueNotifier<int?> numberCompletionEvent = ValueNotifier(null);
+
+
+// ... (中略) ...
+
+  /// デイリーミッション開始
+  Future<void> startDailyMission(DateTime date) async {
+    // 生成開始フラグON
+    _isGenerating = true;
+    _isDailyMission = true;
+    _dailyDate = date;
+    notifyListeners();
+
+    // 既存のタイマーを停止
+    _stopTimer();
+
+    // 設定をロード
+    final prefs = await SharedPreferences.getInstance();
+    final isLightningMode = prefs.getBool('isLightningMode') ?? false;
+    final isFastPencil = prefs.getBool('isFastPencil') ?? false;
+
+    // シード生成 (YYYYMMDD)
+    int seed = date.year * 10000 + date.month * 100 + date.day;
+    
+    // 難易度を日付でランダム決定 (Seedを使うので日替わり固定)
+    final random = Random(seed);
+    // Hard(50%), Expert(50%)
+    final dailyDifficulty = random.nextBool() ? Difficulty.hard : Difficulty.expert;
+
+    // パズルを生成
+    try {
+      var result = await compute(generatePuzzleWorker, {
+        'difficulty': dailyDifficulty.value,
+        'seed': seed,
+      });
+      _currentPuzzle = SudokuPuzzle(
+        puzzle: result[0],
+        solution: result[1],
+        difficulty: dailyDifficulty,
+      );
+    } catch (e) {
+      print("Daily Puzzle Generation Failed: $e");
+      _isGenerating = false;
+      notifyListeners();
+      return;
+    }
+
+    // ゲーム状態をリセット
+    final currentUsername = _gameState.username;
+    _gameState = GameState(
+      username: currentUsername,
+      isLightningMode: isLightningMode,
+      isFastPencil: isFastPencil,
+    );
+    
+    _isGameClear = false;
+    _isRunningAway = false;
+    _tauntMessage = null;
+    _selectedRow = null;
+    _selectedCol = null;
+
+    // 生成完了
+    _isGenerating = false;
+
+    // タイマー開始
+    _startTimer();
+
+    notifyListeners();
+  }
 
   GameProvider() {
     _loadUsername();
@@ -144,7 +216,10 @@ class GameProvider extends ChangeNotifier {
   bool get isGameClear => _isGameClear;
   bool get isRunningAway => _isRunningAway;
   bool get isGenerating => _isGenerating;
+  bool get isDailyMission => _isDailyMission;
   String? get tauntMessage => _tauntMessage;
+  int? get lastTotalScore => _lastTotalScore;
+  bool get isDailyBonusApplied => _isDailyBonusApplied;
 
   /// 残りマス数
   int get remainingCells {
@@ -171,6 +246,10 @@ class GameProvider extends ChangeNotifier {
 
   /// 新しいゲームを開始
   Future<void> startNewGame(Difficulty difficulty, String username) async {
+    // 通常モードなのでフラグOFF
+    _isDailyMission = false;
+    _dailyDate = null;
+
     // 生成開始フラグON
     _isGenerating = true;
     notifyListeners();
@@ -186,7 +265,7 @@ class GameProvider extends ChangeNotifier {
     // パズルを生成 (別スレッドで実行)
     // 難易度が高いと時間がかかるため compute を使用
     try {
-      var result = await compute(generatePuzzleWorker, difficulty.value);
+      var result = await compute(generatePuzzleWorker, {'difficulty': difficulty.value});
       _currentPuzzle = SudokuPuzzle(
         puzzle: result[0],
         solution: result[1],
@@ -662,7 +741,35 @@ class GameProvider extends ChangeNotifier {
     // 基本ポイント + 時間ボーナス
     final basePoints = _gameState.pendingPoints;
     final timeBonus = _calculateTimeBonus(_currentPuzzle!.difficulty, _gameState.time);
-    final totalPoints = (basePoints + timeBonus).clamp(0, double.infinity).toInt();
+    int totalPoints = (basePoints + timeBonus).clamp(0, double.infinity).toInt();
+
+    // デイリーミッションボーナス判定
+    bool isDailyBonusApplied = false;
+    if (_isDailyMission && _dailyDate != null) {
+      final now = DateTime.now();
+      // 年月日が一致するかチェック
+      final isToday = now.year == _dailyDate!.year && 
+                      now.month == _dailyDate!.month && 
+                      now.day == _dailyDate!.day;
+      
+      if (isToday) {
+        // 当日なら10倍ボーナス！
+        totalPoints *= 10;
+        isDailyBonusApplied = true;
+        
+        // 煽り（ポジティブ？）
+        triggerTaunt("今日中にクリアとはな...\n褒めてやるよ、10倍界王拳だ！");
+        AudioController().playMascot(); // 追加で鳴らす
+      }
+      
+      // デイリークリア履歴を保存
+      final dateId = "${_dailyDate!.year}-${_dailyDate!.month.toString().padLeft(2, '0')}-${_dailyDate!.day.toString().padLeft(2, '0')}";
+      await RankingRepository().saveDailyClear(dateId, totalPoints);
+    }
+    
+    // UI表示用に保存
+    _lastTotalScore = totalPoints;
+    notifyListeners();
     
     // Repositoryを通じてIDを取得 (Auth or Local UUID)
     final userId = await RankingRepository().getUserId();

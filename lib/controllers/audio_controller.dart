@@ -152,6 +152,11 @@ class AudioController with WidgetsBindingObserver {
   Future<void> playMascot() async => _playSfx('chara.mp3'); 
   Future<void> playSubClear() async => _playSfx('subclear.mp3'); // 数字完成時 
 
+  // BGM再生メソッド
+  Future<void> playDailyBgm() async => playBgm(fileName: 'daily.mp3');
+  Future<void> playTitleBgm() async => playBgm(fileName: 'Title.mp3');
+  Future<void> playMainBgm() async => playBgm(fileName: 'main_bgm.mp3');
+
   // 振動フィードバック
   Future<void> vibrateGameOver() async {
     try {

@@ -9,6 +9,7 @@ import 'game_screen.dart';
 import 'ranking_screen.dart';
 import '../repositories/ranking_repository.dart';
 import 'settings_screen.dart';
+import 'daily_mission_screen.dart';
 import '../widgets/how_to_play_dialog.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -91,71 +92,74 @@ class _TitleScreenState extends State<TitleScreen> {
                         ),
                       ),
                       
-                      const SizedBox(height: 32),
+                      SizedBox(height: MediaQuery.of(context).size.height * 0.05),
                       
                       // タイトル (Cyber Glitch Ver.)
-                      Stack(
-                        children: [
-                          // 1. Cyan Layer (Left/Top Offset)
-                          Transform.translate(
-                            offset: const Offset(-1, -1),
-                            child: Text(
-                              'おしゃべりクッキーの\nSUDOKU',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.orbitron(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w900,
-                                height: 1.1,
-                                color: Colors.cyanAccent.withOpacity(0.5),
-                              ),
-                            ),
-                          ).animate(onPlay: (controller) => controller.repeat())
-                           .shake(duration: 2000.ms, hz: 0.5, offset: const Offset(-0.25, 0)) // さらに微細なズレ (0.5 -> 0.25)
-                           .fadeIn(duration: 100.ms).then().fadeOut(duration: 100.ms, delay: 5000.ms),
-                          
-                          // 2. Magenta Layer (Right/Bottom Offset)
-                          Transform.translate(
-                            offset: const Offset(1, 1),
-                            child: Text(
-                              'おしゃべりクッキーの\nSUDOKU',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.orbitron(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w900,
-                                height: 1.1,
-                                color: Colors.purpleAccent.withOpacity(0.5),
-                              ),
-                            ),
-                          ).animate(onPlay: (controller) => controller.repeat())
-                           .shake(duration: 2000.ms, hz: 0.5, offset: const Offset(0.25, 0)) // さらに微細なズレ (0.5 -> 0.25)
-                           .fadeIn(duration: 100.ms).then().fadeOut(duration: 100.ms, delay: 7000.ms),
-
-                          // 3. Main Layer (Theme-aware)
-                          Text(
-                            'おしゃべりクッキーの\nSUDOKU',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.orbitron(
-                              fontSize: 32, 
-                              fontWeight: FontWeight.w900,
-                              height: 1.1,
-                              color: Theme.of(context).brightness == Brightness.light
-                                  ? Colors.indigo.shade900 // ライトモード: 濃い青
-                                  : Colors.white, // ダークモード: 白
-                              shadows: [
-                                BoxShadow(
-                                  color: Theme.of(context).brightness == Brightness.light
-                                      ? Colors.indigo.withOpacity(0.3)
-                                      : Colors.blueAccent.withOpacity(0.5),
-                                  blurRadius: 10,
-                                  spreadRadius: 2,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Stack(
+                          children: [
+                            // 1. Cyan Layer (Left/Top Offset)
+                            Transform.translate(
+                              offset: const Offset(-1, -1),
+                              child: Text(
+                                'おしゃべりクッキーの\nSUDOKU',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.1,
+                                  color: Colors.cyanAccent.withOpacity(0.5),
                                 ),
-                              ],
-                            ),
-                          ), // メインの揺れは削除（どっしり構える）
-                        ],
+                              ),
+                            ).animate(onPlay: (controller) => controller.repeat())
+                             .shake(duration: 2000.ms, hz: 0.5, offset: const Offset(-0.25, 0)) // さらに微細なズレ (0.5 -> 0.25)
+                             .fadeIn(duration: 100.ms).then().fadeOut(duration: 100.ms, delay: 5000.ms),
+                            
+                            // 2. Magenta Layer (Right/Bottom Offset)
+                            Transform.translate(
+                              offset: const Offset(1, 1),
+                              child: Text(
+                                'おしゃべりクッキーの\nSUDOKU',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.1,
+                                  color: Colors.purpleAccent.withOpacity(0.5),
+                                ),
+                              ),
+                            ).animate(onPlay: (controller) => controller.repeat())
+                             .shake(duration: 2000.ms, hz: 0.5, offset: const Offset(0.25, 0)) // さらに微細なズレ (0.5 -> 0.25)
+                             .fadeIn(duration: 100.ms).then().fadeOut(duration: 100.ms, delay: 7000.ms),
+                  
+                            // 3. Main Layer (Theme-aware)
+                            Text(
+                              'おしゃべりクッキーの\nSUDOKU',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.orbitron(
+                                fontSize: 32, 
+                                fontWeight: FontWeight.w900,
+                                height: 1.1,
+                                color: Theme.of(context).brightness == Brightness.light
+                                    ? Colors.indigo.shade900 // ライトモード: 濃い青
+                                    : Colors.white, // ダークモード: 白
+                                shadows: [
+                                  BoxShadow(
+                                    color: Theme.of(context).brightness == Brightness.light
+                                        ? Colors.indigo.withOpacity(0.3)
+                                        : Colors.blueAccent.withOpacity(0.5),
+                                    blurRadius: 10,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                            ), // メインの揺れは削除（どっしり構える）
+                          ],
+                        ),
                       ),
                       
-                      const SizedBox(height: 48),
+                      SizedBox(height: MediaQuery.of(context).size.height * 0.08),
                       
                       // ウェルカムメッセージ
                       Consumer<GameProvider>(
@@ -181,6 +185,22 @@ class _TitleScreenState extends State<TitleScreen> {
                         icon: Icons.play_arrow,
                         isPrimary: true,
                         onPressed: () => _showDifficultyDialog(context),
+                      ),
+                      const SizedBox(height: 16),
+                      // デイリーミッション
+                      _MenuButton(
+                        label: 'デイリーミッション',
+                        icon: Icons.calendar_today,
+                        onPressed: () {
+                          AudioController().playSelect();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const DailyMissionScreen()),
+                          ).then((_) {
+                            // 戻ってきたらタイトルBGMを再生
+                            AudioController().playTitleBgm();
+                          });
+                        },
                       ),
                       
 
@@ -227,7 +247,7 @@ class _TitleScreenState extends State<TitleScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: Text(
-                    'Ver 1.2.6',
+                    'Ver 1.4.1',
                     style: TextStyle(
                       color: Theme.of(context).brightness == Brightness.light
                               ? Colors.indigo.shade900.withOpacity(0.3)

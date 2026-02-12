@@ -32,23 +32,29 @@ class _GameOverlayState extends State<GameOverlay> {
       builder: (context, gameProvider, child) {
         if (gameProvider.isGameClear) {
           _confettiController.play();
+          
+          // デイリーミッションかどうかで表示を切り替え
+          final isDaily = gameProvider.isDailyMission;
+          final title = isDaily ? 'MISSION CLEAR!' : 'クリア！';
+          final message = isDaily 
+              ? (gameProvider.isDailyBonusApplied
+                  ? 'おめでとう！\n本日のミッション達成だ！\nポイント10倍！！'
+                  : 'ミッションクリア！\n遅刻だなぁ...今回は通常ポイントだ。\n次は当日に来な！')
+              : 'おめでとうございます！\nクッキーが悔しがっています！';
+          
           return Stack(
             children: [
               _buildOverlay(
                 context,
-                title: 'クリア！',
-                message: 'おめでとうございます！\nクッキーが悔しがっています！',
+                title: title,
+                message: message,
                 color: Colors.green,
                 icon: Icons.emoji_events,
                 onRestart: () {
-                   // TODO: 難易度選択に戻るか、同じ難易度でリスタートなどを実装
-                   // 現状は簡易的に簡易リスタート（本来は引数必要）
-                   // gameProvider.startNewGame(...);
-                   // 一旦ダイアログを閉じるだけにしないよう、親Widgetで制御が必要だが、
-                   // ここではOverlayとして表示し続ける。
-                   Navigator.of(context).pop(); // タイトルに戻る
+                   Navigator.of(context).pop(true); // trueを返してリロード等をトリガー可能に
                 },
                 gameProvider: gameProvider,
+                isDaily: isDaily,
               ),
               Align(
                 alignment: Alignment.topCenter,
@@ -135,7 +141,11 @@ class _GameOverlayState extends State<GameOverlay> {
     required IconData icon,
     required VoidCallback onRestart,
     required GameProvider gameProvider,
+    bool isDaily = false,
   }) {
+    // 確定スコアがあればそれを使用、なければ暫定スコア
+    final score = gameProvider.lastTotalScore ?? gameProvider.gameState.pendingPoints;
+
     return Container(
       color: Colors.black54,
       child: Center(
@@ -169,7 +179,10 @@ class _GameOverlayState extends State<GameOverlay> {
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontWeight: isDaily ? FontWeight.bold : FontWeight.normal,
+                  color: isDaily ? Colors.orange : null,
+                ),
               ),
               const SizedBox(height: 16),
               // 獲得ポイント表示
@@ -189,7 +202,7 @@ class _GameOverlayState extends State<GameOverlay> {
                     const Icon(Icons.stars, color: Colors.amber, size: 24),
                     const SizedBox(width: 8),
                     Text(
-                      '獲得ポイント: ${gameProvider.gameState.pendingPoints} pt',
+                      '獲得ポイント: $score pt',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
@@ -212,7 +225,7 @@ class _GameOverlayState extends State<GameOverlay> {
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                 ),
-                child: const Text('タイトルへ戻る'),
+                child: Text(isDaily ? 'カレンダーへ戻る' : 'タイトルへ戻る'),
               ),
 
             ],

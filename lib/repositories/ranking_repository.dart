@@ -36,7 +36,7 @@ class RankingRepository {
 
     _localDb = await openDatabase(
       path,
-      version: 2, // バージョンを上げる
+      version: 3, // バージョンを上げる
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE scores(
@@ -59,6 +59,15 @@ class RankingRepository {
             updatedAt TEXT
           )
         ''');
+
+        // デイリーミッションクリア履歴
+        await db.execute('''
+          CREATE TABLE daily_clears(
+            date_id TEXT PRIMARY KEY,
+            cleared_at INTEGER,
+            score INTEGER
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -69,6 +78,15 @@ class RankingRepository {
               totalPoints INTEGER,
               bestTimes TEXT,
               updatedAt TEXT
+            )
+          ''');
+        }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE daily_clears(
+              date_id TEXT PRIMARY KEY,
+              cleared_at INTEGER,
+              score INTEGER
             )
           ''');
         }
@@ -526,5 +544,66 @@ class RankingRepository {
   Future<String> _getUsername() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('username') ?? 'Player';
+  }
+
+  // デイリーミッション用メソッド
+
+  /// デイリークリア保存
+  Future<void> saveDailyClear(String dateId, int score) async {
+    if (_localDb == null) await init();
+    try {
+      await _localDb!.insert(
+        'daily_clears',
+        {
+          'date_id': dateId,
+          'cleared_at': DateTime.now().millisecondsSinceEpoch,
+          'score': score,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      print("[RankingRepository] Failed to save daily clear: $e");
+    }
+  }
+
+  /// デイリークリア状況取得
+  Future<Map<String, dynamic>?> getDailyClear(String dateId) async {
+    if (_localDb == null) await init();
+    try {
+      final List<Map<String, dynamic>> maps = await _localDb!.query(
+        'daily_clears',
+        where: 'date_id = ?',
+        whereArgs: [dateId],
+      );
+      if (maps.isNotEmpty) {
+        return maps.first;
+      }
+    } catch (e) {
+      print("[RankingRepository] Failed to get daily clear: $e");
+    }
+    return null;
+  }
+
+  /// 月間のクリア済み日付リストを取得
+  /// [month] 取得したい月を含むDateTime (YYYY-MM)
+  Future<List<String>> getClearedDates(DateTime month) async {
+    if (_localDb == null) await init();
+    
+    // date_id は "YYYY-MM-DD" なので、前方一致で検索
+    final yearMonth = "${month.year}-${month.month.toString().padLeft(2, '0')}";
+    
+    try {
+      final List<Map<String, dynamic>> maps = await _localDb!.query(
+        'daily_clears',
+        columns: ['date_id'],
+        where: 'date_id LIKE ?',
+        whereArgs: ['$yearMonth%'],
+      );
+      
+      return maps.map((m) => m['date_id'] as String).toList();
+    } catch (e) {
+      print("[RankingRepository] Failed to get cleared dates: $e");
+      return [];
+    }
   }
 }

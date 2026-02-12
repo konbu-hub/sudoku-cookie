@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart'; // compute用
 
 /// 数独エンジン - パズル生成と検証を担当
 class SudokuEngine {
-  final Random _random = Random();
+  final Random _random;
+
+  SudokuEngine({int? seed}) : _random = Random(seed);
 
   /// 指定された位置に数字を配置できるかチェック
   bool isSafe(List<List<int>> grid, int row, int col, int num) {
@@ -28,6 +30,10 @@ class SudokuEngine {
 
     return true;
   }
+// ... (中略) ...
+
+
+
 
   /// グリッドを完全に埋める(ランダムな完成済み数独を生成)
   bool fillGrid(List<List<int>> grid) {
@@ -193,7 +199,9 @@ class SudokuEngine {
 
 /// 別スレッドで実行するためのエントリーポイント関数
 /// compute() から呼び出すため、トップレベル関数である必要がある
-List<List<List<int>>> generatePuzzleWorker(String difficulty) {
-  final engine = SudokuEngine();
+List<List<List<int>>> generatePuzzleWorker(Map<String, dynamic> params) {
+  final difficulty = params['difficulty'] as String;
+  final seed = params['seed'] as int?; // seedがあれば固定生成
+  final engine = SudokuEngine(seed: seed);
   return engine.generatePuzzle(difficulty);
 }

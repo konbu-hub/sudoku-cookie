@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:games_services/games_services.dart';
 
 /// Google Play Gamesサービスのラッパークラス
@@ -15,6 +16,8 @@ class PlayGamesService {
 
   /// Play Gamesにサインイン
   Future<bool> signIn() async {
+    if (!Platform.isAndroid) return false;
+
     try {
       final result = await GamesServices.signIn();
       // games_services 4.x では String を返す
@@ -30,6 +33,7 @@ class PlayGamesService {
   /// サインアウト
   /// games_services 4.x ではサインアウトメソッドがないため、状態のみリセット
   Future<void> signOut() async {
+    if (!Platform.isAndroid) return;
     _isSignedIn = false;
   }
 
@@ -41,6 +45,8 @@ class PlayGamesService {
     required String leaderboardId,
     required int score,
   }) async {
+    if (!Platform.isAndroid) return false;
+
     if (!_isSignedIn) {
       print('Play Games: サインインしていないためスコア送信をスキップ');
       // サインインを試みる
@@ -68,6 +74,8 @@ class PlayGamesService {
   /// 
   /// [leaderboardId] 表示するリーダーボードID
   Future<void> showLeaderboard({String? leaderboardId}) async {
+    if (!Platform.isAndroid) return;
+
     if (!_isSignedIn) {
       print('Play Games: サインインしていないためリーダーボード表示をスキップ');
       // サインインを試みる
@@ -95,6 +103,8 @@ class PlayGamesService {
     required String achievementId,
     int percentComplete = 100,
   }) async {
+    if (!Platform.isAndroid) return false;
+
     if (!_isSignedIn) {
       print('Play Games: サインインしていないため実績解除をスキップ');
       // サインインを試みる
@@ -109,6 +119,7 @@ class PlayGamesService {
         achievement: Achievement(
           androidID: achievementId,
           percentComplete: percentComplete.toDouble(),
+          // iOSIDが必須かもしれないが、Androidのみの想定
         ),
       );
       return true;
@@ -120,6 +131,8 @@ class PlayGamesService {
 
   /// 実績一覧を表示
   Future<void> showAchievements() async {
+    if (!Platform.isAndroid) return;
+
     if (!_isSignedIn) {
       print('Play Games: サインインしていないため実績表示をスキップ');
       // サインインを試みる

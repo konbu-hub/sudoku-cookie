@@ -34,10 +34,14 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     super.initState();
     // BGMをメインゲーム用に切り替え
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      AudioController().playBgm(fileName: 'main_bgm.mp3');
+      final gp = context.read<GameProvider>();
+      if (gp.isDailyMission) {
+        AudioController().playDailyBgm();
+      } else {
+        AudioController().playMainBgm();
+      }
       
       // 完成イベントリスナー登録
-      final gp = context.read<GameProvider>();
       gp.numberCompletionEvent.addListener(_onNumberComplete);
     });
     
@@ -149,288 +153,96 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          SafeArea(
-            child: Column(
-              children: [
-                // 上部にスペースを追加
-                const SizedBox(height: 24),
-                
-                // 数独グリッドとポイント表示
-                Expanded(
-                  child: Stack(
-                    children: [
-                      // 数独グリッド
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: SudokuGrid(),
-                        ),
-                      ),
-                      // ポイント表示（右上）
-                      Positioned(
-                        top: 60,
-                        right: 8,
-                        child: Consumer<GameProvider>(
-                          builder: (context, gameProvider, child) {
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withOpacity(0.95),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.amber.shade700,
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.amber.withOpacity(0.3),
-                                    blurRadius: 4,
-                                    spreadRadius: 1,
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.stars, size: 14, color: Colors.white),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    gameProvider.gameState.formattedPoints,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // 数字パッド
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: NumberPad(),
-                ),
-                
-                // コントロールボタン
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Consumer<GameProvider>(
-                          builder: (context, gameProvider, child) {
-                            // 爆発トリガーチェック
-                            if (gameProvider.gameState.mascotClicks == 0) {
-                              _hasExploded = false; // ゲームリセット時はフラグもリセット
-                            }
-                            if (gameProvider.gameState.mascotClicks >= 5 && !_hasExploded) {
-                              _hasExploded = true;
-                              _explosionController.forward(from: 0);
-                            }
-
-                            return Stack(
-                              clipBehavior: Clip.none,
-                              alignment: Alignment.center,
-                              children: [
-                                ElevatedButton(
-                                  onPressed: gameProvider.gameState.canUseHint
-                                      ? () {
-                                          AudioController().playSelect();
-                                          gameProvider.useHint();
-                                        }
-                                      : null,
-                                  style: ElevatedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                                    elevation: 2,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.lightbulb, size: 20),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'ヒント',
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          '${3 - gameProvider.gameState.hintsUsed}',
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Consumer<GameProvider>(
-                          builder: (context, gameProvider, child) {
-                            final isActive = gameProvider.gameState.isFastPencil;
-                            return ElevatedButton.icon(
-                              onPressed: () {
-                                AudioController().playSelect();
-                                gameProvider.toggleFastPencilMode();
-                              },
-                              icon: Icon(
-                                isActive ? Icons.check_box : Icons.check_box_outline_blank,
-                                size: 20,
-                              ),
-                              label: const Text(
-                                'オートメモ',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isActive
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(context).colorScheme.surfaceVariant,
-                                foregroundColor: isActive
-                                    ? Colors.white
-                                    : Theme.of(context).textTheme.bodyLarge?.color,
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                                elevation: isActive ? 4 : 1,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Consumer<GameProvider>(
-                          builder: (context, gameProvider, child) {
-                            final isActive = gameProvider.gameState.isLightningMode;
-                            return ElevatedButton.icon(
-                              onPressed: () {
-                                AudioController().playSelect();
-                                gameProvider.toggleLightningMode();
-                              },
-                              icon: Icon(
-                                isActive ? Icons.flash_on : Icons.flash_off,
-                                size: 20,
-                              ),
-                              label: const Text(
-                                'クイック',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isActive
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(context).colorScheme.surfaceVariant,
-                                foregroundColor: isActive
-                                    ? Colors.white
-                                    : Theme.of(context).textTheme.bodyLarge?.color,
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                                elevation: isActive ? 4 : 1,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const CookieMascot(),
-          // 右上の「愚か」カウンター
-          Positioned(
-            top: 20,
-            right: 20,
-            child: Consumer<GameProvider>(
-              builder: (context, gameProvider, child) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.redAccent.withOpacity(0.8),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.redAccent.withOpacity(0.3),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: Text(
-                    '愚か: ${gameProvider.gameState.formattedErrors}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          const GameOverlay(),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isLandscape = constraints.maxWidth > constraints.maxHeight;
           
-          // 画面フラッシュエフェクト
-          if (_showFlash)
-            AnimatedOpacity(
-              opacity: _showFlash ? 0.3 : 0.0, // 透明度を下げて控えめに
-              duration: const Duration(milliseconds: 200),
-              child: Container(
-                color: Colors.cyanAccent.withOpacity(0.3), // 黄色からクールなシアンへ
+          return Stack(
+            children: [
+              SafeArea(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: isLandscape ? 900 : 600, // Tablet/Desktop maxWidth constraint
+                    ),
+                    child: isLandscape 
+                        ? _buildLandscapeLayout(context) 
+                        : _buildPortraitLayout(context),
+                  ),
+                ),
               ),
-            ),
-          
-          // 波動エフェクト (Ripple)
-          IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _explosionController,
-              builder: (context, child) {
-                if (_explosionController.value == 0 || _explosionController.isDismissed) {
-                   return const SizedBox.shrink();
-                }
-                return CustomPaint(
-                  painter: RipplePainter(
-                    progress: _explosionController.value,
-                    color: Colors.cyanAccent,
+              const CookieMascot(),
+              // 右上の「愚か」カウンター
+              Positioned(
+                top: 20,
+                right: 20,
+                child: Consumer<GameProvider>(
+                  builder: (context, gameProvider, child) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.redAccent.withOpacity(0.8),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.redAccent.withOpacity(0.3),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        '愚か: ${gameProvider.gameState.formattedErrors}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const GameOverlay(),
+              
+              // 画面フラッシュエフェクト
+              if (_showFlash)
+                AnimatedOpacity(
+                  opacity: _showFlash ? 0.3 : 0.0, // 透明度を下げて控えめに
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    color: Colors.cyanAccent.withOpacity(0.3), // 黄色からクールなシアンへ
                   ),
-                  size: Size.infinite,
-                );
-              },
-            ),
-          ),
-        ],
+                ),
+              
+              // 波動エフェクト (Ripple)
+              IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _explosionController,
+                  builder: (context, child) {
+                    if (_explosionController.value == 0 || _explosionController.isDismissed) {
+                       return const SizedBox.shrink();
+                    }
+                    return CustomPaint(
+                      painter: RipplePainter(
+                        progress: _explosionController.value,
+                        color: Colors.cyanAccent,
+                      ),
+                      size: Size.infinite,
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        }
       ),
-    ),
+      ),
     );
   }
 
@@ -448,6 +260,300 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     path.addOval(Rect.fromCircle(center: Offset(cx, cy), radius: outerRadius));
     return path;
     // 星型実装が長くなるので一旦円で実装
+  }
+
+  /// 縦画面用レイアウト (既存のレイアウトベース)
+  Widget _buildPortraitLayout(BuildContext context) {
+    return SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - kToolbarHeight,
+        ),
+        child: IntrinsicHeight(
+          child: Column(
+            children: [
+              // 上部にスペースを追加
+              const SizedBox(height: 24),
+              
+              // 数独グリッドとポイント表示
+              Expanded(
+                child: Stack(
+                  children: [
+                    // 数独グリッド
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: SudokuGrid(),
+                      ),
+                    ),
+                    // ポイント表示（右上）
+                    _buildPointBadge(),
+                  ],
+                ),
+              ),
+              
+              // 数字パッド
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: NumberPad(),
+              ),
+              
+              // コントロールボタン
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: _buildControlButtons(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 横画面用レイアウト (左右分割)
+  Widget _buildLandscapeLayout(BuildContext context) {
+    return Row(
+      children: [
+        // 左側: 数独グリッド
+        Expanded(
+          flex: 3,
+          child: Stack(
+            children: [
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: const SudokuGrid(),
+                  ),
+                ),
+              ),
+              _buildPointBadge(),
+            ],
+          ),
+        ),
+        
+        // 右側: コントロールパネル
+        Expanded(
+          flex: 2,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 16),
+                // 数字パッド
+                const NumberPad(),
+                const SizedBox(height: 32),
+                
+                // コントロールボタン (縦に並べるか、Gridにするか)
+                _buildControlButtons(context, isVertical: true),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// ポイント表示バッジ
+  Widget _buildPointBadge() {
+    return Positioned(
+      top: 60,
+      right: 8,
+      child: Consumer<GameProvider>(
+        builder: (context, gameProvider, child) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.amber.withOpacity(0.95),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.amber.shade700,
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.amber.withOpacity(0.3),
+                  blurRadius: 4,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.stars, size: 14, color: Colors.white),
+                const SizedBox(width: 4),
+                Text(
+                  gameProvider.gameState.formattedPoints,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// コントロールボタン群
+  Widget _buildControlButtons(BuildContext context, {bool isVertical = false}) {
+    final buttons = [
+      // ヒントボタン
+      Consumer<GameProvider>(
+        builder: (context, gameProvider, child) {
+          // 爆発トリガーチェック
+          if (gameProvider.gameState.mascotClicks == 0) {
+            _hasExploded = false; 
+          }
+          if (gameProvider.gameState.mascotClicks >= 5 && !_hasExploded) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+               if (mounted) {
+                 setState(() {
+                   _hasExploded = true;
+                   _explosionController.forward(from: 0);
+                 });
+               }
+            });
+          }
+
+          return ElevatedButton(
+            onPressed: gameProvider.gameState.canUseHint
+                ? () {
+                    AudioController().playSelect();
+                    gameProvider.useHint();
+                  }
+                : null,
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              minimumSize: const Size(0, 48),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lightbulb, size: 20),
+                const SizedBox(width: 4),
+                Text(
+                  'ヒント',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '${3 - gameProvider.gameState.hintsUsed}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+      
+      // オートメモボタン
+      Consumer<GameProvider>(
+        builder: (context, gameProvider, child) {
+          final isActive = gameProvider.gameState.isFastPencil;
+          return ElevatedButton.icon(
+            onPressed: () {
+              AudioController().playSelect();
+              gameProvider.toggleFastPencilMode();
+            },
+            icon: Icon(
+              isActive ? Icons.check_box : Icons.check_box_outline_blank,
+              size: 20,
+            ),
+            label: const Text(
+              'オートメモ',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isActive
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.surfaceVariant,
+              foregroundColor: isActive
+                  ? Colors.white
+                  : Theme.of(context).textTheme.bodyLarge?.color,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              elevation: isActive ? 4 : 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              minimumSize: const Size(0, 48),
+            ),
+          );
+        },
+      ),
+
+      // クイックモードボタン
+      Consumer<GameProvider>(
+        builder: (context, gameProvider, child) {
+          final isActive = gameProvider.gameState.isLightningMode;
+          return ElevatedButton.icon(
+            onPressed: () {
+              AudioController().playSelect();
+              gameProvider.toggleLightningMode();
+            },
+            icon: Icon(
+              isActive ? Icons.flash_on : Icons.flash_off,
+              size: 20,
+            ),
+            label: const Text(
+              'クイック',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isActive
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.surfaceVariant,
+              foregroundColor: isActive
+                  ? Colors.white
+                  : Theme.of(context).textTheme.bodyLarge?.color,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              elevation: isActive ? 4 : 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              minimumSize: const Size(0, 48),
+            ),
+          );
+        },
+      ),
+    ];
+
+    if (isVertical) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: buttons.map((b) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: b,
+        )).toList(),
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: buttons[0]),
+        const SizedBox(width: 12),
+        Expanded(child: buttons[1]),
+        const SizedBox(width: 12),
+        Expanded(child: buttons[2]),
+      ],
+    );
   }
 
   void _showGameSettingsMenu(BuildContext context) {

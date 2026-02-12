@@ -1,0 +1,46 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ユーザーが認証されているかチェックする関数
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // ユーザーが自分のデータにアクセスしているかチェックする関数
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // グローバルスコアコレクション
+    // 読み取り: 認証済みユーザーのみ
+    // 書き込み: 認証済みユーザーのみ（自分のデータのみ）
+    match /global_scores/{scoreId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // ユーザー統計コレクション
+    // 読み取り: 認証済みユーザーのみ
+    // 書き込み: 自分のデータのみ
+    match /user_stats/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+    
+    // グローバル逃走モードコレクション
+    // 読み取り: 認証済みユーザーのみ
+    // 書き込み: 自分のデータのみ
+    match /global_runaways/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+    
+    // その他すべてのパスへのアクセスを拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
